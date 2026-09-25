@@ -1,0 +1,14 @@
+erDiagram
+    USERS ||--o{ RENTALS : places
+    USERS ||--o{ INSPECTIONS : performs
+
+    CATEGORIES ||--o{ EQUIPMENT : contains
+    EQUIPMENT ||--o{ EQUIPMENT_UNITS : has
+
+    RENTALS ||--o{ RENTAL_ITEMS : contains
+    EQUIPMENT_UNITS ||--o{ RENTAL_ITEMS : "reserved through"
+
+    RENTAL_ITEMS ||--o{ INSPECTIONS : has
+
+    RENTALS ||--o{ CHARGES : receives
+    RENTALS ||--o{ PAYMENTS : receives
