@@ -1,94 +1,410 @@
-# Equipment Rental Platform
+# Equipment Rental Platform — API & Database Design
 
-## Assessment purpose
+A backend system design and PostgreSQL data modelling project for an equipment rental platform.
 
-This repository is the design and database proof for Task 3: API Design and Data Modeling. It records product requirements, the logical and PostgreSQL data model, the rental lifecycle, a proposed HTTP API contract, executable database queries, rejection tests, query-plan evidence, and seven captured evidence screenshots.
+The project explores how equipment availability, reservations, rental lifecycle transitions, inspections, payments and historical records can be modelled reliably before building the application layer.
 
-No API server exists in this repository. The API is designed, not built.
+It includes a proposed REST API contract, an executable PostgreSQL schema, database constraints and triggers, deterministic test data, rejection tests, query-plan analysis and architecture evidence.
 
-## Product overview
+> **Project boundary:** This repository contains the API design and database implementation. It does not contain an API server, frontend or authentication implementation.
 
-The Equipment Rental Platform lets customers find rentable equipment for a requested period, reserve it, pay the rental and applicable additional charges, collect the equipment, and return it. Staff manage the equipment catalogue, individual physical assets, availability, reservations, checkouts, returns, and inspections.
+## What This Project Demonstrates
 
-The model distinguishes a rentable equipment model or type (`Equipment`) from each individual physical asset (`EquipmentUnit`).
+- REST API design
+- Relational data modelling
+- PostgreSQL schema design
+- Database constraints and triggers
+- Rental availability modelling
+- Prevention of overlapping reservations
+- State-machine design
+- Transaction and lifecycle reasoning
+- Historical data preservation
+- Database indexing
+- Query-plan analysis
+- API error modelling
+- Idempotency design
+- Cursor pagination design
+- Architecture documentation
 
-## Documents
+## Product Overview
 
-| Document | What it answers |
+The platform is designed for an equipment rental business where customers can:
+
+1. Search for equipment available during a requested period.
+2. Reserve one or more physical equipment units.
+3. Pay for a rental and applicable additional charges.
+4. Collect rented equipment.
+5. Return equipment for inspection.
+
+Staff can manage:
+
+- Equipment catalogue entries
+- Individual physical units
+- Availability
+- Reservations
+- Checkouts
+- Returns
+- Inspections
+- Payments and additional charges
+
+A key modelling decision is the separation between:
+
+```text
+Equipment
+```
+
+and:
+
+```text
+EquipmentUnit
+```
+
+`Equipment` represents the rentable model or type, while `EquipmentUnit` represents an individual physical asset.
+
+For example:
+
+```text
+Equipment
+Excavator Model X
+       │
+       ├── Unit 001
+       ├── Unit 002
+       └── Unit 003
+```
+
+This allows availability and rental history to be tracked against the actual physical asset rather than only the catalogue item.
+
+## System Design
+
+The system is divided conceptually into:
+
+```text
+Client
+   │
+   ▼
+REST API
+   │
+   ▼
+Business Rules
+   │
+   ▼
+PostgreSQL
+```
+
+This repository focuses primarily on the bottom two layers:
+
+```text
+API Contract
+     +
+Database Model
+```
+
+The HTTP API is specified in:
+
+```text
+docs/api-design.md
+```
+
+while the executable database design lives under:
+
+```text
+database/
+```
+
+## Core User Actions
+
+The design maps five important product actions to API operations and database queries.
+
+| Action | Proposed API |
 | --- | --- |
-| [`docs/requirements.md`](docs/requirements.md) | Product purpose, roles, the five important user actions, in-scope and out-of-scope decisions, and what is still open. |
-| [`docs/data-model.md`](docs/data-model.md) | The nine entities, normalisation and deliberate denormalisation, per-entity deletion and retention, identifier rationale, the action/query/index mapping, constraints, triggers, and the ER diagrams. |
-| [`docs/state-machine.md`](docs/state-machine.md) | The eight rental statuses, the ten permitted transitions, the reserving-status group, and the forbidden edges. |
-| [`docs/api-design.md`](docs/api-design.md) | The proposed REST contract: endpoint inventory, payloads, error catalog, idempotency, cursor pagination, authorization, GraphQL and real-time analysis, and traceability. It is a design; nothing in it is implemented. |
-| [`evidence/README.md`](evidence/README.md) | The seven screenshots, the reproducible PostgreSQL 17 workflow, the manual capture order, and when a screenshot must be recaptured. |
+| Manage equipment and physical units | `POST /api/v1/equipment` and `POST /api/v1/equipment/{equipmentId}/units` |
+| Search available equipment | `GET /api/v1/equipment/availability` |
+| Create a rental reservation | `POST /api/v1/rentals` |
+| Check equipment out and back in | Rental transition and inspection endpoints |
+| Record and summarize payments | Payment and payment-summary endpoints |
 
-## Scope
+Each action also has a corresponding SQL query under:
 
-The design and database proof cover:
+```text
+database/queries/
+```
 
-- Equipment catalogue and physical-unit management.
-- Period-based availability and reservations using half-open `[startAt, endAt)`.
-- Rental lifecycle transitions enforced by a database trigger.
-- Checkout and return inspections.
-- Late-fee and damage charges, plus payments.
-- Historical preservation of equipment names and agreed rates.
-- Database constraints, indexes, and cross-table enforcement for those decisions.
-- A small deterministic demo seed and five database queries mapped to the important user actions.
-- Database rejection evidence for invalid periods, overlapping physical-unit reservations, and forbidden lifecycle transitions.
-- A separate, optional deterministic volume fixture and two `EXPLAIN (ANALYZE, BUFFERS)` scripts for the two heavy assessment queries.
-- A proposed REST contract in `docs/api-design.md`, plus GraphQL and real-time analyses that both recommend deferral in favour of REST plus polling for the MVP.
-- Seven captured evidence screenshots in `evidence/`.
+This creates traceability between the product requirements, API design and database implementation.
 
-The following remain outside this step:
+## Data Model
 
-- API or server implementation.
-- Frontend implementation.
-- Authentication or authorization implementation.
-- GraphQL or real-time push, which are analysed but deliberately not adopted; refunds and a general payment ledger remain out of product scope.
-- Business features not stated in the assessment brief.
-- GitHub publishing and commits.
+The database contains nine core entities covering:
 
-## Five important user actions
+- Users
+- Equipment
+- Physical equipment units
+- Rentals
+- Rental items
+- Inspections
+- Charges
+- Payments
+- Supporting rental data
 
-| # | Action | Proposed endpoint | Assessment query |
-| --- | --- | --- | --- |
-| A1 | Staff add and manage rental equipment and physical units. | `POST /api/v1/equipment`, `POST /api/v1/equipment/{equipmentId}/units` | `database/queries/01_manage_equipment.sql` |
-| A2 | Customers search for equipment available during a specified rental period. | `GET /api/v1/equipment/availability` | `database/queries/02_search_availability.sql` |
-| A3 | Customers create a reservation for one or more equipment items. | `POST /api/v1/rentals` | `database/queries/03_create_rental.sql` |
-| A4 | Staff check equipment out and back in while recording condition inspections. | `POST /api/v1/rentals/{rentalId}/transitions`, `POST /api/v1/rentals/{rentalId}/items/{rentalItemId}/inspections` | `database/queries/04_checkout_return.sql` |
-| A5 | Customers pay for the rental and any applicable additional charges. | `POST /api/v1/rentals/{rentalId}/payments`, `GET /api/v1/rentals/{rentalId}/payment-summary` | `database/queries/05_payment_summary.sql` |
+The complete model, constraints and design rationale are documented in:
 
-## Repository structure
+```text
+docs/data-model.md
+```
+
+### Entity Relationship Diagram
+
+![Equipment rental entity relationship diagram](./evidence/01-er-diagram.png)
+
+> The Mermaid source in `evidence/01-er-diagram.mmd` is the authoritative diagram source. If the source and screenshot differ, the screenshot should be regenerated from the current source.
+
+## Rental Lifecycle
+
+A rental follows an explicitly modelled state machine.
+
+![Rental lifecycle state machine](./evidence/02-rental-state-machine.png)
+
+The model contains eight rental statuses and ten permitted transitions.
+
+Instead of allowing arbitrary status changes, lifecycle transitions are constrained by database rules.
+
+For example, a completed rental should not be able to return to an active state.
+
+A transition such as:
+
+```text
+COMPLETED → ACTIVE
+```
+
+is rejected.
+
+The complete lifecycle is documented in:
+
+```text
+docs/state-machine.md
+```
+
+## Availability Modelling
+
+Availability is period-based.
+
+Rental periods use the half-open interval:
+
+```text
+[startAt, endAt)
+```
+
+This means a rental ending at a particular time does not conflict with another rental beginning at exactly that time.
+
+Conceptually:
+
+```text
+Rental A
+10:00 ├──────────────┤ 12:00
+
+Rental B
+                       12:00 ├──────────────┤ 14:00
+```
+
+These periods do not overlap.
+
+The database includes enforcement designed to prevent a physical equipment unit from being reserved for conflicting periods.
+
+## Database-Level Protection
+
+Important business rules are not left entirely to a future application server.
+
+The PostgreSQL layer includes:
+
+- Check constraints
+- Foreign keys
+- Indexes
+- Triggers
+- Rental-period validation
+- Availability enforcement
+- Rental-state transition enforcement
+
+This provides a second layer of protection for important data invariants.
+
+## Rejection Testing
+
+The repository contains executable tests demonstrating that invalid database operations are rejected.
+
+### Invalid Rental Period
+
+A rental where:
+
+```text
+startAt = endAt
+```
+
+is rejected by the database.
+
+![Invalid rental period rejection](./evidence/03-invalid-date-range.png)
+
+### Overlapping Reservation
+
+An attempt to reserve a physical unit during an already occupied period is rejected.
+
+![Overlapping reservation rejection](./evidence/04-overlapping-reservation.png)
+
+### Invalid State Transition
+
+A forbidden rental lifecycle transition is also rejected.
+
+![Invalid rental state transition](./evidence/05-invalid-state-transition.png)
+
+The corresponding SQL scripts are located in:
+
+```text
+database/evidence/
+```
+
+## REST API Design
+
+The proposed API contract is documented in:
+
+```text
+docs/api-design.md
+```
+
+It covers:
+
+- Endpoint design
+- Request and response payloads
+- Error catalogue
+- Authorization boundaries
+- Idempotency
+- Cursor pagination
+- Resource modelling
+- GraphQL evaluation
+- Real-time communication evaluation
+- Traceability to product requirements
+
+REST with polling was selected for the proposed MVP rather than introducing GraphQL or real-time push prematurely.
+
+The API remains a design in this repository; no HTTP server is implemented here.
+
+## Idempotency
+
+The API design considers operations where retrying the same request could otherwise produce duplicate effects.
+
+Idempotency is therefore part of the proposed API contract for relevant write operations.
+
+The supporting persistence required for full idempotency enforcement is identified as future database work rather than presented as already implemented.
+
+## Historical Data
+
+Rental systems need to preserve what was agreed at the time of a transaction.
+
+For example, if an equipment price changes later, an existing rental should not suddenly appear to have been created at the new price.
+
+The model therefore considers historical preservation of information such as:
+
+- Equipment names
+- Agreed rental rates
+
+This is an intentional use of denormalisation where preserving historical business truth is more important than always referencing the latest catalogue value.
+
+## Query Design
+
+Five SQL query workflows correspond to the major product actions:
+
+```text
+database/queries/01_manage_equipment.sql
+database/queries/02_search_availability.sql
+database/queries/03_create_rental.sql
+database/queries/04_checkout_return.sql
+database/queries/05_payment_summary.sql
+```
+
+The reservation demonstration runs inside a transaction and rolls back so the demonstration does not permanently modify the seeded state.
+
+## Query-Plan Analysis
+
+Two heavier database operations were analysed using:
+
+```sql
+EXPLAIN (ANALYZE, BUFFERS)
+```
+
+The repository includes a larger deterministic fixture specifically for this purpose.
+
+### Availability Query
+
+![Availability query plan](./evidence/06-availability-explain.png)
+
+### Payment Summary Query
+
+![Payment summary query plan](./evidence/07-payment-summary-explain.png)
+
+An important lesson from this analysis is that defining an index does not guarantee PostgreSQL will use it.
+
+The query planner makes a cost-based decision based on factors including:
+
+- Table size
+- Data distribution
+- Selectivity
+- Estimated cost
+- Available access paths
+
+A sequential scan can therefore be a legitimate query plan rather than evidence that an index is broken.
+
+## Database Seeds
+
+Two deterministic seed datasets serve different purposes.
+
+### Demo Seed
+
+```text
+database/seeds/001_demo_data.sql
+```
+
+A small, readable dataset used for the main queries and rejection tests.
+
+### Query-Plan Fixture
+
+```text
+database/seeds/002_query_plan_fixture.sql
+```
+
+A larger dataset generated specifically to make query-plan analysis more meaningful.
+
+The fixture is optional and does not replace the demo dataset.
+
+## Repository Structure
 
 ```text
 .
 ├── README.md
+│
 ├── docs/
 │   ├── requirements.md
 │   ├── data-model.md
 │   ├── state-machine.md
 │   └── api-design.md
+│
 ├── database/
 │   ├── migrations/
-│   │   ├── .gitkeep
 │   │   └── 001_initial_schema.sql
+│   │
 │   ├── seeds/
-│   │   ├── .gitkeep
 │   │   ├── 001_demo_data.sql
 │   │   └── 002_query_plan_fixture.sql
+│   │
 │   ├── queries/
-│   │   ├── .gitkeep
 │   │   ├── 01_manage_equipment.sql
 │   │   ├── 02_search_availability.sql
 │   │   ├── 03_create_rental.sql
 │   │   ├── 04_checkout_return.sql
 │   │   └── 05_payment_summary.sql
+│   │
 │   └── evidence/
 │       ├── 01_invalid_date_range.sql
 │       ├── 02_overlapping_reservation.sql
 │       ├── 03_invalid_state_transition.sql
 │       ├── 04_availability_explain.sql
 │       └── 05_payment_summary_explain.sql
+│
 └── evidence/
     ├── README.md
     ├── 01-er-diagram.mmd
@@ -101,24 +417,57 @@ The following remain outside this step:
     └── 07-payment-summary-explain.png
 ```
 
-The three `.gitkeep` files exist only so their directories survive in version control; they hold no content.
+## Documentation
 
-The migration creates the PostgreSQL schema, enums, keys, constraints, indexes, and database triggers.
+The repository includes detailed engineering documentation:
 
-The two seeds are not interchangeable:
+### Product Requirements
 
-| Seed | Size | Purpose |
-| --- | --- | --- |
-| `database/seeds/001_demo_data.sql` | Small, hand-written, deterministic | The readable dataset behind the five assessment queries and the three rejection scripts. Intended for one clean load into an empty database. Not a reset script. |
-| `database/seeds/002_query_plan_fixture.sql` | Large, generated with `generate_series` | Optional. Loaded only to give the two `EXPLAIN` scripts enough rows to produce a meaningful plan. It leaves the demo seed untouched and runs `ANALYZE`. |
+```text
+docs/requirements.md
+```
 
-`evidence/01-er-diagram.mmd` is the Mermaid source of the compact relationship diagram in `docs/data-model.md`. It is kept as a separate file so the screenshot and the document can be compared directly.
+Defines the product purpose, roles, important user actions, scope and open decisions.
 
-## Reproduce the database proof
+### Data Model
 
-PostgreSQL 17 is required. Neither PostgreSQL nor Docker is bundled with this repository; both must already be installed on your machine. The workflow below uses a disposable `postgres:17` container with no host port, so nothing is exposed to your network and nothing survives the session.
+```text
+docs/data-model.md
+```
 
-The container name, database name, and password below are throwaway local values. They are not credentials for anything real, and no real credential belongs in this repository or in a screenshot.
+Documents the entities, relationships, normalization decisions, deliberate denormalization, identifiers, constraints, indexes and database rules.
+
+### Rental State Machine
+
+```text
+docs/state-machine.md
+```
+
+Documents the rental statuses and permitted lifecycle transitions.
+
+### API Design
+
+```text
+docs/api-design.md
+```
+
+Defines the proposed REST contract, payloads, errors, pagination, idempotency and architecture decisions.
+
+### Evidence Guide
+
+```text
+evidence/README.md
+```
+
+Documents how the database evidence and screenshots were reproduced.
+
+## Reproducing the Database
+
+The database proof targets PostgreSQL 17.
+
+A disposable PostgreSQL container can be used for local verification.
+
+Example:
 
 ```powershell
 $Container = "equipment-rental-pg"
@@ -130,98 +479,95 @@ docker run --rm -d --name $Container `
     -e POSTGRES_PASSWORD=local_evidence_only `
     -e POSTGRES_DB=$Db `
     postgres:17
-
-docker exec $Container pg_isready -U $PgUser -d $Db
-
-function Invoke-Psql([string[]]$Sql) {
-    $Sql -join "`n" | docker exec -i $Container psql -X -U $PgUser -d $Db -v ON_ERROR_STOP=1 -f -
-    if ($LASTEXITCODE -ne 0) { throw "psql failed with exit code $LASTEXITCODE." }
-}
-
-Invoke-Psql @("$(Get-Content -Raw -LiteralPath 'database\migrations\001_initial_schema.sql')")
-Invoke-Psql @("$(Get-Content -Raw -LiteralPath 'database\seeds\001_demo_data.sql')")
 ```
 
-If you already have a PostgreSQL 17 instance and prefer to use it, apply the same files with a normal `psql` connection instead. The order below is the same in both cases.
-
-The block above is PowerShell: it uses backtick line continuations, `$Container`/`$Db`/`$PgUser` variables, a `function` definition, and backslash file paths, so run it from PowerShell in the repository root. Nothing in the procedure depends on PowerShell otherwise. The container is created with the same `docker run` arguments in any shell, and the equivalent on a POSIX shell is `docker exec -i <container> psql -X -U evidence -d equipment_rental -v ON_ERROR_STOP=1 -f - < database/migrations/001_initial_schema.sql`, substituting the container, user, and database names you chose.
-
-### Assessment queries
-
-```text
-database/queries/01_manage_equipment.sql
-database/queries/02_search_availability.sql
-database/queries/03_create_rental.sql
-database/queries/04_checkout_return.sql
-database/queries/05_payment_summary.sql
-```
-
-`03_create_rental.sql` performs its demonstration inserts inside a transaction and ends with `ROLLBACK`, so it leaves the loaded state unchanged.
-
-### Rejection evidence
-
-Run these against the database holding the demo seed. Each script triggers the real database rejection, reports the returned SQLSTATE and PostgreSQL message, prints the post-test state, and rolls back:
-
-```text
-database/evidence/01_invalid_date_range.sql
-database/evidence/02_overlapping_reservation.sql
-database/evidence/03_invalid_state_transition.sql
-```
-
-| Script | Mechanism | SQLSTATE |
-| --- | --- | --- |
-| `01_invalid_date_range.sql` | `rentals_period_valid` | `23514` |
-| `02_overlapping_reservation.sql` | `rental_items_enforce_availability` invoking `assert_rental_unit_available` | `23P01` |
-| `03_invalid_state_transition.sql` | `rentals_enforce_status_transition` invoking `enforce_rental_status_transition` | `23514` |
-
-### Query-plan evidence
-
-Load the optional volume fixture once, after the rejection scripts, then run the two read-only plan statements:
-
-```text
-database/seeds/002_query_plan_fixture.sql
-database/evidence/04_availability_explain.sql
-database/evidence/05_payment_summary_explain.sql
-```
-
-These scripts use `EXPLAIN (ANALYZE, BUFFERS)` and do not change planner settings. Report the plan PostgreSQL actually produces, including any sequential scan it reasonably chooses: an index defined in the migration is not evidence that any query used it, and a sequential scan is a legitimate cost-based decision rather than a failure.
-
-### Clean up
+Check readiness:
 
 ```powershell
-docker stop $Container
+docker exec $Container pg_isready -U $PgUser -d $Db
 ```
 
-## Evidence screenshots
+Apply the migration followed by the demo seed.
 
-The seven screenshots are embedded, with per-screenshot detail, in [`evidence/README.md`](evidence/README.md):
+The full reproducibility workflow and evidence-capture procedure are documented in:
 
-| Screenshot | Shows |
-| --- | --- |
-| [`01-er-diagram.png`](evidence/01-er-diagram.png) | Nine-entity relationship view and cardinalities. |
-| [`02-rental-state-machine.png`](evidence/02-rental-state-machine.png) | Eight rental statuses and ten permitted transitions. |
-| [`03-invalid-date-range.png`](evidence/03-invalid-date-range.png) | `23514` rejection of a zero-length rental period (`start_at = end_at`). |
-| [`04-overlapping-reservation.png`](evidence/04-overlapping-reservation.png) | `23P01` rejection of an overlapping unit reservation. |
-| [`05-invalid-state-transition.png`](evidence/05-invalid-state-transition.png) | `23514` rejection of `COMPLETED -> ACTIVE`. |
-| [`06-availability-explain.png`](evidence/06-availability-explain.png) | Availability query plan against the volume fixture. |
-| [`07-payment-summary-explain.png`](evidence/07-payment-summary-explain.png) | Payment-summary query plan against the volume fixture. |
+```text
+evidence/README.md
+```
 
-If you change a diagram or an evidence script, follow the recapture table in `evidence/README.md`. Note that `evidence/01-er-diagram.mmd` was recently corrected so the rental-to-item edge reads zero-or-more, which matches what the migration enforces, so `01-er-diagram.png` still needs to be recaptured from the updated source.
+The credentials shown above are disposable local development values and are not production credentials.
 
-Capture them in this order, so each screenshot is reproducible from the state the previous step left behind:
+## Design Decisions
 
-| Order | Screenshot | Produced from | Database state required |
-| --- | --- | --- | --- |
-| 1 | `01-er-diagram.png` | Rendering `evidence/01-er-diagram.mmd` | none, it is a diagram |
-| 2 | `02-rental-state-machine.png` | `docs/state-machine.md` | none, it is a diagram |
-| 3 | `03-invalid-date-range.png` | `database/evidence/01_invalid_date_range.sql` | migration plus demo seed |
-| 4 | `04-overlapping-reservation.png` | `database/evidence/02_overlapping_reservation.sql` | migration plus demo seed |
-| 5 | `05-invalid-state-transition.png` | `database/evidence/03_invalid_state_transition.sql` | migration plus demo seed |
-| 6 | `06-availability-explain.png` | `database/evidence/04_availability_explain.sql` | migration, demo seed, then the volume fixture |
-| 7 | `07-payment-summary-explain.png` | `database/evidence/05_payment_summary_explain.sql` | migration, demo seed, then the volume fixture |
+Several decisions shaped this system.
 
-Screenshots 6 and 7 require the volume fixture, so load it before capturing them. Screenshots 3 to 5 do not need it: each rejection script targets explicit seeded identifiers and rolls back, so it produces the same output whether or not the fixture is loaded. All three rejection scripts can be re-run in any order against the demo-seeded database.
+### Separate Equipment From Physical Units
 
-## Boundary
+A catalogue item and a physical rentable asset have different responsibilities and therefore use separate entities.
 
-This repository is a design and database proof, not a full application. It contains no API code, frontend, authentication, or application dependencies. The migration, the two seeds, the five assessment queries, the five evidence scripts, and the screenshots are included, and `docs/api-design.md` specifies the intended HTTP surface without implementing it. Several decisions that need a database change, such as an idempotency-key table and stable custom SQLSTATE codes for the triggers, are named in that document as future migrations rather than applied here. GitHub publishing and commits are not part of this step.
+### Enforce Critical Rules in PostgreSQL
+
+Rules such as valid rental periods, conflicting reservations and lifecycle transitions benefit from database-level enforcement rather than relying entirely on application code.
+
+### Preserve Historical Business Values
+
+Selected rental information is intentionally preserved so later catalogue changes do not rewrite historical transactions.
+
+### REST for the MVP
+
+REST provides a simpler API surface for the identified workflows.
+
+GraphQL and real-time communication were evaluated but deliberately deferred rather than added without a demonstrated product requirement.
+
+### Measure Query Plans
+
+Database indexes are treated as hypotheses to evaluate rather than automatic performance guarantees.
+
+## What I Learned
+
+This project reinforced that API design and database modelling are closely connected.
+
+Some of the main lessons were:
+
+- API resources should map clearly to the underlying business model.
+- Physical inventory and catalogue data often require different entities.
+- Time-range availability becomes significantly more complex when physical units can be reserved independently.
+- Database constraints can protect important invariants even when application logic fails.
+- State machines make lifecycle rules explicit and testable.
+- Historical transactional data sometimes requires deliberate denormalisation.
+- Idempotency should be considered during API design, not only after duplicate requests become a production problem.
+- Query optimization should be based on actual query plans rather than the existence of indexes.
+- A technically valid sequential scan can be the correct PostgreSQL decision.
+- Architecture decisions should include what **not** to build yet.
+
+Most importantly, the project helped me approach backend development by defining the data model, invariants and API contract before implementation.
+
+## Project Context
+
+This project was created as part of my **Product Design & Engineering** training and focuses specifically on **API design and data modelling**.
+
+Unlike my implementation-focused projects, this repository deliberately stops before building the application server.
+
+The goal is to demonstrate the reasoning that should happen before implementation:
+
+```text
+Requirements
+     ↓
+Domain Model
+     ↓
+Database Design
+     ↓
+Business Invariants
+     ↓
+API Contract
+     ↓
+Performance Analysis
+     ↓
+Implementation
+```
+
+This repository covers the stages leading up to implementation.
+
+## License
+
+This project is intended to be released under the MIT License.
